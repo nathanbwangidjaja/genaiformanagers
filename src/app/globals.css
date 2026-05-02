@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+:root {
+  --background: #09090B;
+  --foreground: #FAFAFA;
+  --bg0: #09090B;
+  --bg1: #18181B;
+  --bg2: #27272A;
+  --border: #3F3F46;
+  --text0: #FAFAFA;
+  --text1: #A1A1AA;
+  --text2: #71717A;
+  --text3: #52525B;
+  --cyan: #22D3EE;
+  --violet: #A78BFA;
+  --orange: #FB923C;
+  --green: #4ADE80;
+  --amber: #FBBF24;
+  --red: #F87171;
+  --pink: #F472B6;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-bg0: var(--bg0);
+  --color-bg1: var(--bg1);
+  --color-bg2: var(--bg2);
+  --color-border: var(--border);
+  --color-cyan-cortex: var(--cyan);
+  --color-violet-cortex: var(--violet);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg0);
+  color: var(--text0);
+  font-family: var(--font-inter), system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button { font-family: inherit; }
+
+::selection {
+  background: rgba(34, 211, 238, 0.3);
+  color: #FAFAFA;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg0); }
+::-webkit-scrollbar-thumb { background: var(--bg2); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border); }
+
+/* Animations */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-fade-in { animation: fade-in 400ms ease-out forwards; }
+.animate-slide-up { animation: slide-up 600ms ease-out forwards; }
