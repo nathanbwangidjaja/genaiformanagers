@@ -1,6 +1,10 @@
 # Cortex
 
-A personalized learning webapp for Grade 7 math. Each student has a knowledge graph that tracks both mastery (per concept, via Bayesian Knowledge Tracing) and behavioral signals (curiosity, motivation, engagement, persistence). Teachers get a per-student view of how each kid actually learns, not just whether they got the last quiz right.
+Cortex is a B2B personalized learning platform. The core idea is that understanding a student goes well beyond tracking right and wrong answers — you also need to know how curious they are, how motivated they stay after a failure, how consistently they show up, and how they engage with material that wasn't assigned to them. Cortex captures all of this and builds a live knowledge graph for each student that reflects both what they know and how they learn.
+
+The platform has two sides. For students, it adapts to where they actually are: surfacing the right practice, showing them their own progress as a visual knowledge graph, and giving them hints and feedback that match their specific error patterns. For teachers, it's a tool for understanding their class at depth — not just aggregate scores, but per-student breakdowns of mastery, engagement, and behavioral signals — so they can write lesson plans, homework, and exams that actually meet students where they are. That's the B2B angle: the product is sold to schools and districts, and the primary workflow it improves is the teacher's.
+
+The current implementation covers Grade 7 math (Common Core), which serves as a well-scoped domain to prove out the model. The curriculum is structured as a graph of concepts with prerequisite relationships, so the system knows not just that a student struggles with ratios, but that they probably haven't solidified unit rates first. The architecture is designed to generalize to other subjects and grade levels.
 
 Built with Next.js 16 (App Router), React 19, Prisma + Postgres, Clerk, tRPC, and Tailwind v4.
 
@@ -124,20 +128,13 @@ Defined in `src/server/services/behavioral/scores.ts`:
 - **Engagement** = 0.25 frequency + 0.25 duration + 0.3 assignment-completion + 0.2 recency
 - **Persistence** = 0.6 retry-rate + 0.4 session-duration
 
-## Event pipeline
+## How interactions build the knowledge graph
 
-When a student answers a question:
+Every action a student takes is recorded as an `InteractionEvent` — answering a question, using a hint, asking a freeform question, voluntarily attempting a harder problem, exploring a concept that wasn't assigned. These events feed two separate pipelines that together build the student's graph.
 
-1. The focus-mode UI POSTs to `/api/interactions/attempt`.
-2. `recordQuestionAttempt()` (`src/server/services/mastery/update.ts`) runs:
-   - Append the raw `InteractionEvent` for the audit trail.
-   - Read existing `StudentConceptMastery`.
-   - Apply BKT update (decay, posterior, learn) with adjustments for hints, time, error type.
-   - Update aggregates: attempts, hint-rate, streak, error-pattern counts.
-   - Persist.
-3. Returns the new mastery so the UI can show the delta.
+**Mastery (real-time).** When a student submits an answer, the app POSTs to `/api/interactions/attempt`. This immediately runs a Bayesian Knowledge Tracing update on that concept node: it reads the student's current mastery estimate, applies forgetting decay based on how long it's been since they last practiced, computes a posterior from the correctness observation, and then applies the learning prior. The update isn't just correct/incorrect — it accounts for hints used (which lower the signal value of a correct answer) and error type (a computational slip is treated differently from a conceptual gap). The updated mastery propagates back to the UI so the student sees their graph change in real time.
 
-Separately, a Vercel Cron hits `/api/cron/update-graphs` every 15 min, which calls `recomputeAllStudents()` to aggregate the last 30 days of events and refresh behavioral scores.
+**Behavioral scores (batched).** Separately, a cron job runs every 15 minutes and aggregates the last 30 days of raw events for every student into four behavioral scores: curiosity, motivation, engagement, and persistence. Each score is a weighted combination of signals — curiosity, for example, weights voluntary exploration, self-initiated harder problems, freeform questions, and time spent on concepts beyond what was assigned. These scores surface on the teacher's per-student view alongside mastery, giving them a much richer picture than grades alone.
 
 ## Status
 
@@ -171,6 +168,3 @@ npm run db:studio      # open Prisma Studio
 npm run db:generate    # regenerate the Prisma client
 ```
 
-## Design source
-
-The original design files (vanilla React, inline styles) live in `_design-source/cortex/` for reference. The full spec is in `_design-source/DESIGN_SPEC.md`. The production app uses the same tokens, ported into TypeScript modules in `src/components/cortex/`.
