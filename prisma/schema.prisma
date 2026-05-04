@@ -25,6 +25,7 @@ model User {
   teacherClasses Class[]            @relation("ClassTeacher")
   studentClasses ClassEnrollment[]
   studentProfile StudentProfile?
+  lessonPlans    LessonPlan[]
 }
 
 model Class {
@@ -38,6 +39,22 @@ model Class {
 
   enrollments ClassEnrollment[]
   assignments Assignment[]
+  lessonPlans LessonPlan[]
+}
+
+// Saved AI-generated lesson plans
+model LessonPlan {
+  id        String   @id @default(cuid())
+  teacherId String
+  teacher   User     @relation(fields: [teacherId], references: [id])
+  classId   String?
+  class     Class?   @relation(fields: [classId], references: [id])
+  title     String
+  content   Json     // Full LessonPlan object (sections, criteria, etc.)
+  focusNotes String?
+  createdAt DateTime @default(now())
+
+  @@index([teacherId, createdAt])
 }
 
 model ClassEnrollment {

@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { C, FONT_MONO } from "@/components/cortex/tokens";
 import { Btn, Badge } from "@/components/cortex/primitives";
 import { Icon } from "@/components/cortex/Icon";
@@ -10,6 +11,13 @@ type BankQuestion = {
   code: string;
   text: string;
   difficulty: number;
+  domain: string;
+};
+
+type Concept = {
+  id: string;
+  code: string;
+  name: string;
   domain: string;
 };
 
@@ -30,12 +38,16 @@ function diffLabel(d: number) {
 export function AssignmentBuilder({
   classes,
   initialClassId,
-  questions,
+  questions: initialQuestions,
+  concepts,
 }: {
   classes: { id: string; name: string }[];
   initialClassId: string;
   questions: BankQuestion[];
+  concepts: Concept[];
 }) {
+  const router = useRouter();
+  const [questions, setQuestions] = React.useState(initialQuestions);
   const [classId, setClassId] = React.useState(initialClassId);
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
@@ -43,6 +55,53 @@ export function AssignmentBuilder({
   const [selected, setSelected] = React.useState<string[]>([]);
   const [domainFilter, setDomainFilter] = React.useState<string>("");
   const [search, setSearch] = React.useState("");
+
+  // AI question generation
+  const [genOpen, setGenOpen] = React.useState(false);
+  const [genConceptId, setGenConceptId] = React.useState(concepts[0]?.id ?? "");
+  const [genDifficulty, setGenDifficulty] = React.useState(3);
+  const [genLoading, setGenLoading] = React.useState(false);
+  const [genError, setGenError] = React.useState<string | null>(null);
+
+  const generateQuestion = async () => {
+    setGenLoading(true);
+    setGenError(null);
+    try {
+      const res = await fetch("/api/generate-question", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          curriculumNodeId: genConceptId,
+          difficulty: genDifficulty,
+          persist: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setGenError(data.message || data.error || "Failed");
+      } else {
+        // Add to bank list and auto-select
+        const concept = concepts.find((c) => c.id === genConceptId);
+        if (concept && data.questionId) {
+          const newQ: BankQuestion = {
+            id: data.questionId,
+            code: concept.code,
+            text: data.generated.text,
+            difficulty: data.generated.difficulty,
+            domain: concept.domain,
+          };
+          setQuestions((prev) => [newQ, ...prev]);
+          setSelected((prev) => [...prev, data.questionId]);
+          setGenOpen(false);
+          // Refresh server data on next nav
+          router.refresh();
+        }
+      }
+    } catch (e) {
+      setGenError(e instanceof Error ? e.message : "Failed");
+    }
+    setGenLoading(false);
+  };
 
   const filtered = questions.filter((q) => {
     if (domainFilter && q.domain !== domainFilter) return false;
@@ -138,8 +197,37 @@ export function AssignmentBuilder({
           }}
         >
           <div style={{ padding: 18, borderBottom: `1px solid ${C.bg2}` }}>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
-              Question Bank ({questions.length})
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ fontSize: 14, fontWeight: 600 }}>
+                Question Bank ({questions.length})
+              </div>
+              <button
+                type="button"
+                onClick={() => setGenOpen(true)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "5px 10px",
+                  borderRadius: 99,
+                  background: `${C.violet}10`,
+                  color: C.violet,
+                  border: `1px solid ${C.violet}33`,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                <Icon name="sparkle" size={11} color={C.violet} strokeWidth={2} /> Generate with AI
+              </button>
             </div>
             <div
               style={{
@@ -372,6 +460,113 @@ export function AssignmentBuilder({
           </div>
         </div>
       </div>
+
+      {/* Generate-with-AI modal */}
+      {genOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.6)",
+            backdropFilter: "blur(4px)",
+            zIndex: 100,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+          onClick={() => !genLoading && setGenOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: C.bg1,
+              border: `1px solid ${C.border}`,
+              borderRadius: 14,
+              padding: 28,
+              width: "100%",
+              maxWidth: 480,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <Icon name="sparkle" size={18} color={C.violet} />
+              <div style={{ fontSize: 18, fontWeight: 600 }}>Generate question with AI</div>
+            </div>
+            <div style={{ fontSize: 13, color: C.text1, lineHeight: 1.5, marginBottom: 22 }}>
+              Cortex will generate a new multiple-choice question targeting the chosen Common Core
+              standard at the difficulty you set. The question is saved to your bank.
+            </div>
+            <label style={{ fontSize: 12, color: C.text2, display: "block", marginBottom: 6 }}>
+              Standard
+            </label>
+            <select
+              value={genConceptId}
+              onChange={(e) => setGenConceptId(e.target.value)}
+              disabled={genLoading}
+              style={{ ...inputStyle, marginBottom: 14 }}
+            >
+              {concepts.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.code} — {c.name}
+                </option>
+              ))}
+            </select>
+            <label style={{ fontSize: 12, color: C.text2, display: "block", marginBottom: 6 }}>
+              Difficulty: <span style={{ color: C.text0, fontFamily: FONT_MONO }}>{genDifficulty.toFixed(1)}</span>
+              <span style={{ color: C.text3, marginLeft: 8 }}>(1 easy → 5 hard)</span>
+            </label>
+            <input
+              type="range"
+              min={1}
+              max={5}
+              step={0.5}
+              value={genDifficulty}
+              onChange={(e) => setGenDifficulty(parseFloat(e.target.value))}
+              disabled={genLoading}
+              style={{ width: "100%", marginBottom: 22 }}
+            />
+            {genError && (
+              <div
+                style={{
+                  fontSize: 13,
+                  color: C.red,
+                  background: `${C.red}06`,
+                  border: `1px solid ${C.red}33`,
+                  borderRadius: 8,
+                  padding: 10,
+                  marginBottom: 14,
+                }}
+              >
+                {genError}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <Btn
+                kind="ghost"
+                size="md"
+                onClick={() => setGenOpen(false)}
+                disabled={genLoading}
+              >
+                Cancel
+              </Btn>
+              <Btn
+                kind="primary"
+                size="md"
+                onClick={generateQuestion}
+                disabled={genLoading || !genConceptId}
+                style={{ opacity: genLoading || !genConceptId ? 0.6 : 1 }}
+                iconRight={
+                  genLoading ? undefined : (
+                    <Icon name="sparkle" size={13} color={C.bg0} strokeWidth={2} />
+                  )
+                }
+              >
+                {genLoading ? "Generating…" : "Generate"}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
     </form>
   );
 }

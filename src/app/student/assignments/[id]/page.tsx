@@ -25,17 +25,29 @@ export default async function TakeAssignmentPage({
   });
   if (!assignment) notFound();
 
-  // Make sure there's an open submission
   const submission = await startSubmission(assignment.id);
 
-  // Pull existing responses so the student doesn't redo answered questions
   const responses = await prisma.submissionResponse.findMany({
     where: { submissionId: submission.id },
   });
 
-  // Serialize question content (jsonb)
+  // Pull current mastery for any concept that this assignment touches —
+  // the tutor uses this to calibrate explanations.
+  const conceptIds = Array.from(
+    new Set(assignment.questions.map((aq) => aq.question.curriculumNodeId)),
+  );
+  const masteryRecords = await prisma.studentConceptMastery.findMany({
+    where: { studentId: studentProfileId, curriculumNodeId: { in: conceptIds } },
+  });
+  const conceptMastery: Record<string, number> = Object.fromEntries(
+    masteryRecords.map((m) => [m.curriculumNodeId, m.masteryLevel]),
+  );
+
   const questions = assignment.questions.map((aq) => {
-    const content = (aq.question.content ?? {}) as { text?: string; options?: { value: string; correct: boolean }[] };
+    const content = (aq.question.content ?? {}) as {
+      text?: string;
+      options?: { value: string; correct: boolean }[];
+    };
     const hints = (aq.question.hints ?? []) as string[];
     return {
       id: aq.question.id,
@@ -55,11 +67,13 @@ export default async function TakeAssignmentPage({
       assignmentId={assignment.id}
       submissionId={submission.id}
       studentProfileId={studentProfileId}
+      studentName={student.firstName || undefined}
       questions={questions}
       previousResponses={responses.map((r) => ({
         questionId: r.questionId,
         isCorrect: r.isCorrect,
       }))}
+      conceptMastery={conceptMastery}
     />
   );
 }

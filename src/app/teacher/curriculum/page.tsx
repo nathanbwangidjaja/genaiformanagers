@@ -3,10 +3,18 @@ import { TeacherShell } from "@/components/cortex/shells";
 import { KnowledgeGraph } from "@/components/cortex/KnowledgeGraph";
 import { Icon } from "@/components/cortex/Icon";
 import { Badge } from "@/components/cortex/primitives";
+import { requireTeacher } from "@/server/auth";
 
-export default function CurriculumPage() {
+export const dynamic = "force-dynamic";
+
+export default async function CurriculumPage() {
+  const teacher = await requireTeacher();
   return (
-    <TeacherShell title="Curriculum" breadcrumb={["Curriculum", "Grade 7 Math"]}>
+    <TeacherShell
+      title="Curriculum"
+      breadcrumb={["Curriculum", "Grade 7 Math"]}
+      teacherName={`${teacher.firstName} ${teacher.lastName}`.trim() || "Teacher"}
+    >
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 24 }}>
         <Badge tone="cyan" dot>
           Grade 7 · Common Core

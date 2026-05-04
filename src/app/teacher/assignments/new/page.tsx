@@ -28,7 +28,13 @@ export default async function NewAssignmentPage({
     orderBy: { difficulty: "asc" },
   });
 
-  if (questions.length === 0) {
+  const concepts = await prisma.curriculumNode.findMany({
+    where: { depth: "STANDARD" },
+    select: { id: true, code: true, name: true, domain: true },
+    orderBy: { code: "asc" },
+  });
+
+  if (questions.length === 0 && concepts.length === 0) {
     return (
       <TeacherShell
         title="New Assignment"
@@ -36,7 +42,7 @@ export default async function NewAssignmentPage({
         teacherName={`${teacher.firstName} ${teacher.lastName}`.trim() || "Teacher"}
       >
         <Card style={{ padding: 60, textAlign: "center" }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>No questions in the bank</div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>No curriculum loaded</div>
           <div style={{ fontSize: 13, color: C.text2, marginTop: 6 }}>
             Run <code style={{ color: C.cyan }}>npm run db:seed</code> to populate the curriculum and
             sample questions.
@@ -68,6 +74,12 @@ export default async function NewAssignmentPage({
             domain: q.curriculumNode.domain,
           };
         })}
+        concepts={concepts.map((c) => ({
+          id: c.id,
+          code: c.code,
+          name: c.name,
+          domain: c.domain,
+        }))}
       />
     </TeacherShell>
   );

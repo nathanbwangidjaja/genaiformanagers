@@ -87,10 +87,29 @@ export default async function StudentDashboardPage() {
             {firstName}
           </span>
         </div>
-        <div style={{ fontSize: 14, color: C.text1, marginBottom: 32 }}>
-          {enrollments.length === 0
-            ? "Join a class to get started."
-            : `Enrolled in ${enrollments.length} class${enrollments.length === 1 ? "" : "es"}.`}
+        <div
+          style={{
+            fontSize: 14,
+            color: C.text1,
+            marginBottom: 32,
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+            flexWrap: "wrap",
+          }}
+        >
+          <span>
+            {enrollments.length === 0
+              ? "Join a class to get started."
+              : `Enrolled in ${enrollments.length} class${enrollments.length === 1 ? "" : "es"}.`}
+          </span>
+          {enrollments.length > 0 && (
+            <Link href="/student/join" style={{ textDecoration: "none" }}>
+              <Btn kind="ghost" size="sm" iconRight={<Icon name="plus" size={12} />}>
+                Join another class
+              </Btn>
+            </Link>
+          )}
         </div>
 
         {enrollments.length === 0 && (
