@@ -136,18 +136,36 @@ enum QuestionType {
   STEP_BY_STEP
 }
 
+enum QuestionFormat {
+  COMPUTATION
+  WORD_PROBLEM
+  VISUAL
+  MULTI_STEP
+  CONCEPT
+}
+
+enum CognitiveDemand {
+  RECALL      // remember a fact / formula
+  APPLY       // execute a known procedure
+  ANALYZE     // pull apart relationships
+  EVALUATE    // judge / compare
+  CREATE      // construct novel solution
+}
+
 model Question {
-  id               String         @id @default(cuid())
+  id               String          @id @default(cuid())
   curriculumNodeId String
-  curriculumNode   CurriculumNode @relation(fields: [curriculumNodeId], references: [id])
-  content          Json           // {text, options[], correctAnswer, media?}
+  curriculumNode   CurriculumNode  @relation(fields: [curriculumNodeId], references: [id])
+  content          Json            // {text, options[], correctAnswer, media?}
   questionType     QuestionType
-  difficulty       Float          @default(3.0)
-  expectedTimeSec  Int            @default(120)
-  commonErrors     Json?          // {answerValue: errorType}
-  hints            Json?          // string[]
+  format           QuestionFormat  @default(COMPUTATION)
+  cognitiveDemand  CognitiveDemand @default(APPLY)
+  difficulty       Float           @default(3.0)
+  expectedTimeSec  Int             @default(120)
+  commonErrors     Json?           // {answerValue: errorType}
+  hints            Json?           // string[]
   createdById      String?
-  createdAt        DateTime       @default(now())
+  createdAt        DateTime        @default(now())
 
   assignmentQuestions AssignmentQuestion[]
   interactions        InteractionEvent[]
@@ -209,27 +227,135 @@ model StudentProfile {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id])
 
+  // Legacy aggregate tables — kept while we migrate reads to the KG.
   masteryRecords    StudentConceptMastery[]
   behavioralProfile StudentBehavioralProfile?
+  insight           StudentInsight?
   interactionEvents InteractionEvent[]
   sessions          LearningSession[]
+
+  // Knowledge graph — the new source of truth.
+  kgNodes KGNode[]
+  kgEdges KGEdge[]
+}
+
+// =============================================================================
+// KNOWLEDGE GRAPH — per-student, append-only, the source of truth for the
+// student's cognitive profile. All node types live in one table; all edge
+// types in another. The `props` JSON carries type-specific data + cached
+// aggregates (e.g. concept node carries the current mastery as a prop so the
+// real-time loop doesn't have to traverse the graph to read mastery).
+//
+// Node types:
+//   concept           — a Common Core standard the student has touched
+//                       props: { code, name, domain, mastery, confidence,
+//                                totalAttempts, correctAttempts, hintRate,
+//                                streak, lastPracticedAt, weaknessCategory,
+//                                flowFraction, errorPatternCounts }
+//   attempt           — one question_attempt event
+//                       props: { isCorrect, timeMs, hintsUsed, errorType }
+//   question          — a question seen by this student
+//                       props: { questionId, text, difficulty, format }
+//   tutor_message     — student's message to the AI tutor
+//                       props: { text, intent, confidence }
+//   misconception     — recurring error pattern (extracted)
+//                       props: { errorType, conceptId, occurrenceCount, firstSeen }
+//   strength          — sustained success pattern (extracted)
+//                       props: { conceptId, evidenceType }
+//   curiosity_thread  — cluster of conceptual_why questions (extracted)
+//                       props: { topic, messageIds }
+//   behavior          — aggregate behavioral score (curiosity, motivation, etc.)
+//                       props: { kind, value, signals }
+//   trait             — inferred cognitive trait
+//                       props: { name, value, confidence, evidence }
+//   session           — a learning session
+//                       props: { startedAt, endedAt, type }
+//   insight           — AI-generated teacher brief snapshot
+//                       props: { summary, highlights, recommendations }
+//
+// Edge types:
+//   practiced_in      — attempt → concept
+//   instance_of       — attempt → question
+//   tested_by         — question → concept
+//   prerequisite_of   — concept → concept (curriculum)
+//   asked_about       — tutor_message → concept
+//   evidences         — attempt → misconception
+//   demonstrates      — attempt → strength
+//   manifests_in      — trait → concept
+//   contributes_to    — attempt → behavior
+//   during            — attempt or tutor_message → session
+//   confused_about    — tutor_message → concept (intent = expressing_confusion)
+//   understood        — tutor_message → concept (intent = expressing_understanding)
+//   references        — insight → any node
+// =============================================================================
+
+model KGNode {
+  id        String   @id @default(cuid())
+  studentId String
+  student   StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  type      String
+  label     String
+  // For concept nodes: external key (= curriculumNodeId). For question nodes:
+  // the underlying Question.id. Lets us upsert-by-(studentId, type, externalKey)
+  // without scanning props.
+  externalKey String?
+  props     Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outEdges KGEdge[] @relation("from")
+  inEdges  KGEdge[] @relation("to")
+
+  @@index([studentId, type])
+  @@index([studentId, createdAt])
+  @@unique([studentId, type, externalKey])
+}
+
+model KGEdge {
+  id        String   @id @default(cuid())
+  studentId String
+  student   StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  fromId    String
+  toId      String
+  type      String
+  weight    Float    @default(1.0)
+  props     Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  from KGNode @relation("from", fields: [fromId], references: [id], onDelete: Cascade)
+  to   KGNode @relation("to",   fields: [toId],   references: [id], onDelete: Cascade)
+
+  @@index([studentId, type])
+  @@index([fromId])
+  @@index([toId])
+}
+
+enum WeaknessCategory {
+  SOLID                 // high mastery, low hints, low conceptual errors
+  MEMORIZED_FRAGILE     // high mastery but high hint usage — passes when scaffolded
+  CONCEPTUALLY_WEAK     // low mastery + dominant conceptual errors — needs reteaching
+  PROCEDURALLY_WEAK     // low mastery + dominant computational errors — needs practice
+  CARELESS              // mid mastery + dominant careless errors — needs slow-down strategy
+  UNTESTED              // not enough data
 }
 
 model StudentConceptMastery {
-  id                 String         @id @default(cuid())
+  id                 String           @id @default(cuid())
   studentId          String
   curriculumNodeId   String
-  masteryLevel       Float          @default(0.0)
-  confidence         Float          @default(0.0)
-  totalAttempts      Int            @default(0)
-  correctAttempts    Int            @default(0)
+  masteryLevel       Float            @default(0.0)
+  confidence         Float            @default(0.0)
+  totalAttempts      Int              @default(0)
+  correctAttempts    Int              @default(0)
   avgTimePerQuestion Float?
-  errorPatternCounts Json           @default("{}")
-  hintUsageRate      Float          @default(0.0)
+  errorPatternCounts Json             @default("{}")
+  hintUsageRate      Float            @default(0.0)
   lastPracticedAt    DateTime?
-  streak             Int            @default(0)
-  decayFactor        Float          @default(0.05)
-  updatedAt          DateTime       @updatedAt
+  streak             Int              @default(0)
+  decayFactor        Float            @default(0.05)
+  weaknessCategory   WeaknessCategory @default(UNTESTED)
+  flowFraction       Float            @default(0.0) // fraction of attempts in challenge-skill sweet spot
+  updatedAt          DateTime         @updatedAt
 
   student        StudentProfile @relation(fields: [studentId], references: [id])
   curriculumNode CurriculumNode @relation(fields: [curriculumNodeId], references: [id])
@@ -246,13 +372,30 @@ model StudentBehavioralProfile {
   motivationScore   Float    @default(0.5)
   engagementScore   Float    @default(0.5)
   persistenceScore  Float    @default(0.5)
+  flowScore         Float    @default(0.0) // composite flow state index 0-1
   curiositySignals  Json     @default("{}")
   motivationSignals Json     @default("{}")
   engagementSignals Json     @default("{}")
+  flowSignals       Json     @default("{}")
+  cognitiveTraits   Json     @default("[]") // [{trait, value, confidence, evidence}]
+  tutorIntents      Json     @default("{}") // counts by intent type
   window30d         Json     @default("{}")
   updatedAt         DateTime @updatedAt
 
   student StudentProfile @relation(fields: [studentId], references: [id])
+}
+
+// AI-generated teacher-facing insight summary, cached per student
+model StudentInsight {
+  id          String         @id @default(cuid())
+  studentId   String         @unique
+  student     StudentProfile @relation(fields: [studentId], references: [id])
+  summary     String         // 2-3 sentence overview
+  highlights  Json           // [{type: "strength|risk|curiosity|growth", text}]
+  recommendations Json       // [{action, why}]
+  modelInputHash String      // sha256 of the input data — used to invalidate when stale
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 }
 
 model InteractionEvent {

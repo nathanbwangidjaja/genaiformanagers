@@ -246,6 +246,9 @@ export function TakeAssignment({
           userMessage: userMsg.content,
           history: tutorMessages,
           studentName,
+          studentProfileId,
+          questionId: q.id,
+          curriculumNodeId: q.curriculumNodeId,
         }),
       });
 

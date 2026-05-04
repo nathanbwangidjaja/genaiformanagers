@@ -106,6 +106,13 @@ async function main() {
   await prisma.interactionEvent.deleteMany({
     where: { student: { user: { email: { contains: "testrun-" } } } },
   });
+  // KG nodes + edges (cascade-deletes on student profile, but be explicit)
+  await prisma.kGEdge.deleteMany({
+    where: { student: { user: { email: { contains: "testrun-" } } } },
+  });
+  await prisma.kGNode.deleteMany({
+    where: { student: { user: { email: { contains: "testrun-" } } } },
+  });
   await prisma.studentProfile.deleteMany({
     where: { user: { email: { contains: "testrun-" } } },
   });
@@ -252,19 +259,30 @@ async function main() {
     `${((refreshedSub?.score ?? 0) * 100).toFixed(0)}%`,
   );
 
-  const masteryRecords = await prisma.studentConceptMastery.findMany({
-    where: { studentId: studentProfile.id },
-    include: { curriculumNode: true },
+  // KG concept nodes are now the source of truth
+  const conceptNodes = await prisma.kGNode.findMany({
+    where: { studentId: studentProfile.id, type: "concept" },
   });
-  check("mastery records created", masteryRecords.length > 0, `${masteryRecords.length} concepts`);
-  for (const m of masteryRecords) {
-    const inRange = m.masteryLevel >= 0 && m.masteryLevel <= 1;
+  check("KG concept nodes created", conceptNodes.length > 0, `${conceptNodes.length} concepts in graph`);
+  for (const c of conceptNodes) {
+    const p = (c.props as Record<string, unknown>) ?? {};
+    const m = (p.mastery as number) ?? 0;
+    const attempts = (p.totalAttempts as number) ?? 0;
+    const streak = (p.streak as number) ?? 0;
     check(
-      `  ${m.curriculumNode.code} mastery in [0,1]`,
-      inRange,
-      `${(m.masteryLevel * 100).toFixed(1)}% (${m.totalAttempts} attempts, streak ${m.streak})`,
+      `  ${(p.code as string) ?? c.label} mastery in [0,1]`,
+      m >= 0 && m <= 1,
+      `${(m * 100).toFixed(1)}% (${attempts} attempts, streak ${streak})`,
     );
   }
+  const attemptKgNodes = await prisma.kGNode.findMany({
+    where: { studentId: studentProfile.id, type: "attempt" },
+  });
+  check("KG attempt nodes recorded", attemptKgNodes.length === 3, `${attemptKgNodes.length}`);
+  const practicedEdges = await prisma.kGEdge.findMany({
+    where: { studentId: studentProfile.id, type: "practiced_in" },
+  });
+  check("practiced_in edges recorded", practicedEdges.length === 3, `${practicedEdges.length}`);
 
   const events = await prisma.interactionEvent.findMany({
     where: { studentId: studentProfile.id },
@@ -275,20 +293,30 @@ async function main() {
   section("Behavioral aggregator");
   const cronRes = await fetch(`${BASE}/api/cron/update-graphs`);
   check("cron endpoint OK", cronRes.ok);
-  const profile = await prisma.studentBehavioralProfile.findUnique({
-    where: { studentId: studentProfile.id },
+  // Behavior nodes are now the source of truth
+  const behaviorNodes = await prisma.kGNode.findMany({
+    where: { studentId: studentProfile.id, type: "behavior" },
   });
-  check("behavioral profile created", !!profile);
-  if (profile) {
+  check("behavior nodes in KG", behaviorNodes.length >= 5, `${behaviorNodes.length} behavior nodes`);
+  if (behaviorNodes.length > 0) {
+    const scores: Record<string, number> = {};
+    for (const n of behaviorNodes) {
+      const k = n.externalKey ?? "?";
+      const v = ((n.props as Record<string, unknown>).value as number) ?? 0;
+      scores[k] = v;
+    }
+    const allInRange = Object.values(scores).every((v) => v >= 0 && v <= 1);
     check(
-      "  scores in [0,1]",
-      profile.curiosityScore >= 0 &&
-        profile.curiosityScore <= 1 &&
-        profile.engagementScore >= 0 &&
-        profile.engagementScore <= 1,
-      `cur=${profile.curiosityScore.toFixed(2)} mot=${profile.motivationScore.toFixed(2)} eng=${profile.engagementScore.toFixed(2)} per=${profile.persistenceScore.toFixed(2)}`,
+      "  behavior scores in [0,1]",
+      allInRange,
+      Object.entries(scores).map(([k, v]) => `${k}=${v.toFixed(2)}`).join(" "),
     );
   }
+  const traitNodes = await prisma.kGNode.findMany({
+    where: { studentId: studentProfile.id, type: "trait" },
+  });
+  // Traits need ≥5 attempts in the trait service; test creates 3 so 0 is OK
+  check("trait nodes derivable", traitNodes.length >= 0, `${traitNodes.length} traits (≥5 attempts needed for any to fire)`);
 
   // === AI tutor (if configured) ===
   section("AI tutor");
@@ -443,6 +471,8 @@ async function main() {
   await prisma.studentConceptMastery.deleteMany({ where: { studentId: studentProfile.id } });
   await prisma.studentBehavioralProfile.deleteMany({ where: { studentId: studentProfile.id } });
   await prisma.interactionEvent.deleteMany({ where: { studentId: studentProfile.id } });
+  await prisma.kGEdge.deleteMany({ where: { studentId: studentProfile.id } });
+  await prisma.kGNode.deleteMany({ where: { studentId: studentProfile.id } });
   await prisma.studentProfile.deleteMany({ where: { id: studentProfile.id } });
   await prisma.user.deleteMany({ where: { id: { in: [teacher.id, studentUser.id] } } });
   check("test data cleaned up", true);

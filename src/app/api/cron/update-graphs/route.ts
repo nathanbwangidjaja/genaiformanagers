@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
-import { recomputeAllStudents } from "@/server/services/behavioral/aggregator";
+import { recomputeAllStudentGraphs } from "@/server/services/kg/aggregator";
 
 // Vercel cron: "0,15,30,45 * * * *" in vercel.json
-// Optionally gate with CRON_SECRET (Vercel attaches it as Bearer token on scheduled invocations)
+// Recomputes the per-student knowledge graph aggregates: behavior nodes,
+// trait nodes, and pattern-extracted nodes (misconceptions, strengths,
+// curiosity threads).
 
 export async function GET(req: Request) {
   const expected = process.env.CRON_SECRET;
@@ -13,7 +15,7 @@ export async function GET(req: Request) {
     }
   }
   try {
-    const result = await recomputeAllStudents();
+    const result = await recomputeAllStudentGraphs();
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     console.error("cron update-graphs failed", e);

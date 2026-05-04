@@ -1,13 +1,16 @@
 import { notFound } from "next/navigation";
 import { C, FONT_MONO } from "@/components/cortex/tokens";
 import { TeacherShell } from "@/components/cortex/shells";
-import { Btn, Badge, Avatar, Bar, Radial, Card } from "@/components/cortex/primitives";
+import { Btn, Avatar, Bar } from "@/components/cortex/primitives";
 import { Icon } from "@/components/cortex/Icon";
 import { requireTeacher } from "@/server/auth";
 import { prisma } from "@/server/db";
-import { StudentKnowledgeGraph } from "@/components/cortex/StudentKnowledgeGraph";
+import { getStudentGraph } from "@/server/services/kg/store";
+import { StudentBrainView } from "./StudentBrainView";
 
-export default async function StudentGraphPage({
+export const dynamic = "force-dynamic";
+
+export default async function StudentBrainPage({
   params,
 }: {
   params: Promise<{ id: string; studentId: string }>;
@@ -23,41 +26,56 @@ export default async function StudentGraphPage({
 
   const student = await prisma.user.findUnique({
     where: { id: studentId },
-    include: {
-      studentProfile: {
-        include: {
-          masteryRecords: { include: { curriculumNode: true } },
-          behavioralProfile: true,
-          interactionEvents: { orderBy: { timestamp: "desc" }, take: 1 },
-        },
-      },
-    },
+    include: { studentProfile: { include: { insight: true } } },
   });
-  if (!student || !student.studentProfile) notFound();
+  if (!student?.studentProfile) notFound();
 
-  const sp = student.studentProfile;
-  const beh = sp.behavioralProfile;
-  const records = sp.masteryRecords;
+  // Pull the entire knowledge graph for this student
+  const { nodes, edges } = await getStudentGraph(student.studentProfile.id);
+
+  // Compute the top-line scores from the behavior nodes
+  const behaviorNodes = nodes.filter((n) => n.type === "behavior");
+  const scoreOf = (kind: string) => {
+    const n = behaviorNodes.find((b) => b.externalKey === kind);
+    return n ? ((n.props as Record<string, unknown>).value as number) ?? 0 : 0;
+  };
+  const conceptNodes = nodes.filter((n) => n.type === "concept");
   const overallMastery =
-    records.length > 0 ? records.reduce((s, r) => s + r.masteryLevel, 0) / records.length : 0;
-  const lastActive = sp.interactionEvents[0]?.timestamp;
+    conceptNodes.length > 0
+      ? conceptNodes.reduce(
+          (s, n) => s + (((n.props as Record<string, unknown>).mastery as number) ?? 0),
+          0,
+        ) / conceptNodes.length
+      : 0;
 
-  const allNodes = await prisma.curriculumNode.findMany({
-    where: { depth: "STANDARD" },
-    include: { prerequisites: true },
-    orderBy: { code: "asc" },
-  });
-
-  const masteryByNode = new Map(records.map((r) => [r.curriculumNodeId, r]));
+  const lastAttempt = nodes
+    .filter((n) => n.type === "attempt")
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
 
   const name = `${student.firstName} ${student.lastName}`.trim() || student.email;
+
+  // Serialize nodes/edges for the client (Date → string)
+  const serializedNodes = nodes.map((n) => ({
+    id: n.id,
+    type: n.type,
+    label: n.label,
+    externalKey: n.externalKey,
+    props: (n.props as Record<string, unknown>) ?? {},
+    createdAt: n.createdAt.toISOString(),
+  }));
+  const serializedEdges = edges.map((e) => ({
+    id: e.id,
+    fromId: e.fromId,
+    toId: e.toId,
+    type: e.type,
+    weight: e.weight,
+  }));
 
   return (
     <TeacherShell
       breadcrumb={["Classes", cls.name, name]}
       teacherName={`${teacher.firstName} ${teacher.lastName}`.trim() || "Teacher"}
     >
-      {/* Student header */}
       <div style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 24 }}>
         <Avatar name={name} size={56} color={C.cyan} />
         <div style={{ flex: 1 }}>
@@ -72,16 +90,23 @@ export default async function StudentGraphPage({
               alignItems: "center",
             }}
           >
-            <span>Grade 7 · {lastActive ? `Active ${timeAgo(lastActive)}` : "Never active"}</span>
+            <span>
+              Grade 7 ·{" "}
+              {lastAttempt ? `Active ${timeAgo(lastAttempt.createdAt)}` : "Never active"}{" "}
+              · {nodes.length} node{nodes.length === 1 ? "" : "s"} in graph
+            </span>
           </div>
         </div>
+        <Btn kind="secondary" size="md" icon={<Icon name="msg" size={14} />}>
+          Message
+        </Btn>
       </div>
 
-      {/* Stats */}
+      {/* Top-level scores derived from the graph */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
+          gridTemplateColumns: "repeat(5, 1fr)",
           gap: 12,
           marginBottom: 24,
         }}
@@ -89,9 +114,10 @@ export default async function StudentGraphPage({
         {(
           [
             ["Mastery", overallMastery, C.cyan],
-            ["Engagement", beh?.engagementScore ?? 0, C.cyan],
-            ["Curiosity", beh?.curiosityScore ?? 0, C.violet],
-            ["Persistence", beh?.persistenceScore ?? 0, C.green],
+            ["Engagement", scoreOf("engagement"), C.cyan],
+            ["Curiosity", scoreOf("curiosity"), C.violet],
+            ["Persistence", scoreOf("persistence"), C.green],
+            ["Flow", scoreOf("flow"), C.pink],
           ] as const
         ).map(([l, v, c]) => (
           <div
@@ -108,7 +134,7 @@ export default async function StudentGraphPage({
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
-                marginBottom: 10,
+                marginBottom: 8,
               }}
             >
               <div
@@ -130,153 +156,28 @@ export default async function StudentGraphPage({
         ))}
       </div>
 
-      {/* Knowledge graph + detail */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.85fr 1fr", gap: 16 }}>
-        <div
-          style={{
-            background: C.bg1,
-            border: `1px solid ${C.bg2}`,
-            borderRadius: 12,
-            height: 620,
-            position: "relative",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              top: 14,
-              left: 16,
-              zIndex: 5,
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-            }}
-          >
-            <Icon name="brain" size={14} color={C.text1} />
-            <span style={{ fontSize: 12, color: C.text1, fontWeight: 500 }}>
-              Knowledge Map
-            </span>
-            <span style={{ fontSize: 11, color: C.text3 }}>
-              · {allNodes.length} concepts · {records.length} practiced
-            </span>
-          </div>
-          <StudentKnowledgeGraph
-            nodes={allNodes.map((n) => ({
-              id: n.id,
-              code: n.code,
-              name: n.name,
-              domain: n.domain,
-              mastery: masteryByNode.get(n.id)?.masteryLevel ?? 0,
-            }))}
-            edges={allNodes.flatMap((n) =>
-              n.prerequisites.map((p) => ({ from: p.sourceNodeId, to: p.targetNodeId })),
-            )}
-          />
-        </div>
-
-        {/* Detail panel */}
-        <div
-          style={{
-            background: C.bg1,
-            border: `1px solid ${C.bg2}`,
-            borderRadius: 12,
-            height: 620,
-            overflow: "auto",
-            padding: 20,
-          }}
-        >
-          {records.length === 0 ? (
-            <div style={{ textAlign: "center", paddingTop: 80 }}>
-              <Icon name="brain" size={28} color={C.text3} />
-              <div style={{ fontSize: 14, fontWeight: 600, marginTop: 14 }}>
-                No practice yet
-              </div>
-              <div style={{ fontSize: 12, color: C.text2, marginTop: 6 }}>
-                {name.split(" ")[0]} hasn&apos;t completed any questions. Assign one to get
-                started.
-              </div>
-            </div>
-          ) : (
-            <>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: C.text2,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  marginBottom: 14,
-                }}
-              >
-                Concept Mastery ({records.length})
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {records
-                  .slice()
-                  .sort((a, b) => a.masteryLevel - b.masteryLevel)
-                  .map((r) => {
-                    const node = r.curriculumNode;
-                    const m = r.masteryLevel;
-                    const color =
-                      m >= 0.8 ? C.green : m >= 0.6 ? C.cyan : m >= 0.3 ? C.violet : C.orange;
-                    return (
-                      <div
-                        key={r.id}
-                        style={{
-                          background: C.bg2,
-                          border: `1px solid ${C.border}`,
-                          borderRadius: 10,
-                          padding: 12,
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            marginBottom: 6,
-                          }}
-                        >
-                          <div style={{ fontSize: 13, fontWeight: 600 }}>{node.name}</div>
-                          <span
-                            style={{
-                              fontSize: 12,
-                              color,
-                              fontFamily: FONT_MONO,
-                              fontWeight: 600,
-                            }}
-                          >
-                            {Math.round(m * 100)}%
-                          </span>
-                        </div>
-                        <Bar value={m} color={color} height={4} />
-                        <div
-                          style={{
-                            fontSize: 11,
-                            color: C.text2,
-                            marginTop: 6,
-                            display: "flex",
-                            gap: 12,
-                          }}
-                        >
-                          <span>{r.totalAttempts} attempts</span>
-                          <span>·</span>
-                          <span>{r.streak} streak</span>
-                          {r.lastPracticedAt && (
-                            <>
-                              <span>·</span>
-                              <span>last {timeAgo(r.lastPracticedAt)}</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+      <StudentBrainView
+        studentId={student.id}
+        studentName={name}
+        nodes={serializedNodes}
+        edges={serializedEdges}
+        cachedInsight={
+          student.studentProfile.insight
+            ? {
+                summary: student.studentProfile.insight.summary,
+                highlights: student.studentProfile.insight.highlights as Array<{
+                  type: string;
+                  text: string;
+                }>,
+                recommendations: student.studentProfile.insight.recommendations as Array<{
+                  action: string;
+                  why: string;
+                }>,
+                updatedAt: student.studentProfile.insight.updatedAt.toISOString(),
+              }
+            : null
+        }
+      />
     </TeacherShell>
   );
 }
