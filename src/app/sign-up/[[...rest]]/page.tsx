@@ -2,6 +2,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { SignUp } from "@clerk/nextjs";
 import { C } from "@/components/cortex/tokens";
 import { Logo, Btn, Avatar } from "@/components/cortex/primitives";
 import { Icon, type IconName } from "@/components/cortex/Icon";
@@ -167,9 +168,6 @@ function RoleStep({
 }
 
 function ClerkSignUp({ role, onBack }: { role: Role; onBack: () => void }) {
-  // Dynamically pull in Clerk's SignUp component so the page still renders if Clerk is absent.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { SignUp } = require("@clerk/nextjs") as typeof import("@clerk/nextjs");
   return (
     <div style={{ width: "100%", maxWidth: 480 }}>
       <button

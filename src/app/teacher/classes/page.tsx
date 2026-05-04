@@ -1,19 +1,26 @@
 import Link from "next/link";
-import { C } from "@/components/cortex/tokens";
+import { C, FONT_MONO } from "@/components/cortex/tokens";
 import { TeacherShell } from "@/components/cortex/shells";
-import { Btn } from "@/components/cortex/primitives";
+import { Btn, Card } from "@/components/cortex/primitives";
 import { Icon } from "@/components/cortex/Icon";
+import { requireTeacher } from "@/server/auth";
+import { prisma } from "@/server/db";
 
-const CLASSES = [
-  { id: "7a", name: "Grade 7A · Period 1", students: 28, mastery: 0.72, color: C.cyan, due: 3 },
-  { id: "7b", name: "Grade 7B · Period 3", students: 31, mastery: 0.64, color: C.violet, due: 1 },
-  { id: "7c", name: "Grade 7C · Period 5", students: 28, mastery: 0.58, color: C.orange, due: 4 },
-  { id: "honors", name: "Honors 7 · Period 6", students: 18, mastery: 0.84, color: C.green, due: 2 },
-];
+const COLORS = [C.cyan, C.violet, C.orange, C.green, C.pink];
 
-export default function ClassesPage() {
+export default async function ClassesPage() {
+  const teacher = await requireTeacher();
+  const classes = await prisma.class.findMany({
+    where: { teacherId: teacher.id },
+    include: { enrollments: true, assignments: true },
+    orderBy: { createdAt: "asc" },
+  });
+
   return (
-    <TeacherShell title="Classes">
+    <TeacherShell
+      title="Classes"
+      teacherName={`${teacher.firstName} ${teacher.lastName}`.trim() || "Teacher"}
+    >
       <div
         style={{
           display: "flex",
@@ -23,91 +30,92 @@ export default function ClassesPage() {
         }}
       >
         <div style={{ fontSize: 14, color: C.text1 }}>
-          {CLASSES.length} classes · {CLASSES.reduce((s, c) => s + c.students, 0)} students total
+          {classes.length} class{classes.length === 1 ? "" : "es"} ·{" "}
+          {classes.reduce((s, c) => s + c.enrollments.length, 0)} students total
         </div>
-        <Btn kind="primary" size="md" iconRight={<Icon name="plus" size={13} color={C.bg0} />}>
-          New Class
-        </Btn>
+        <Link href="/teacher/classes/new" style={{ textDecoration: "none" }}>
+          <Btn kind="primary" size="md" iconRight={<Icon name="plus" size={13} color={C.bg0} />}>
+            New Class
+          </Btn>
+        </Link>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
-        {CLASSES.map((cls) => (
-          <Link
-            key={cls.id}
-            href={`/teacher/classes/${cls.id}`}
-            style={{ textDecoration: "none", color: "inherit" }}
-          >
-            <div
-              style={{
-                background: C.bg1,
-                border: `1px solid ${C.bg2}`,
-                borderRadius: 12,
-                overflow: "hidden",
-                cursor: "pointer",
-              }}
-            >
-              <div style={{ height: 3, background: cls.color }} />
-              <div style={{ padding: 18 }}>
-                <div style={{ fontSize: 16, fontWeight: 600 }}>{cls.name}</div>
-                <div style={{ fontSize: 12, color: C.text2, marginTop: 2 }}>
-                  {cls.students} students
-                </div>
-                <div style={{ display: "flex", gap: 3, marginTop: 14, marginBottom: 14 }}>
-                  {["Ratios", "Numbers", "Expressions", "Geometry", "Stats"].map((d, i) => {
-                    const v = cls.mastery + (i - 2) * 0.08;
-                    const c = v > 0.7 ? C.cyan : v > 0.5 ? C.violet : C.orange;
-                    return (
-                      <div key={d} style={{ flex: 1 }}>
-                        <div
-                          style={{
-                            height: 4,
-                            background: C.bg2,
-                            borderRadius: 99,
-                            overflow: "hidden",
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: `${Math.max(0.1, v) * 100}%`,
-                              height: "100%",
-                              background: c,
-                            }}
-                          />
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 9,
-                            color: C.text3,
-                            marginTop: 4,
-                            textAlign: "center",
-                          }}
-                        >
-                          {d}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+      {classes.length === 0 ? (
+        <Card style={{ padding: 60, textAlign: "center" }}>
+          <Icon name="users" size={28} color={C.text3} />
+          <div style={{ fontSize: 16, fontWeight: 600, marginTop: 14 }}>No classes yet</div>
+          <div style={{ fontSize: 13, color: C.text2, marginTop: 6, marginBottom: 18 }}>
+            Create one and you&apos;ll get an invite code for your students.
+          </div>
+          <Link href="/teacher/classes/new" style={{ textDecoration: "none" }}>
+            <Btn kind="primary" size="md">
+              Create First Class
+            </Btn>
+          </Link>
+        </Card>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+          {classes.map((cls, i) => {
+            const color = COLORS[i % COLORS.length];
+            return (
+              <Link
+                key={cls.id}
+                href={`/teacher/classes/${cls.id}`}
+                style={{ textDecoration: "none", color: "inherit" }}
+              >
                 <div
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontSize: 12,
-                    color: C.text2,
-                    paddingTop: 12,
-                    borderTop: `1px solid ${C.bg2}`,
+                    background: C.bg1,
+                    border: `1px solid ${C.bg2}`,
+                    borderRadius: 12,
+                    overflow: "hidden",
+                    cursor: "pointer",
                   }}
                 >
-                  <span>{cls.due} assignments due</span>
-                  <span style={{ color: C.cyan, display: "flex", alignItems: "center", gap: 4 }}>
-                    View Class <Icon name="arrow" size={11} color={C.cyan} />
-                  </span>
+                  <div style={{ height: 3, background: color }} />
+                  <div style={{ padding: 18 }}>
+                    <div style={{ fontSize: 16, fontWeight: 600 }}>{cls.name}</div>
+                    <div style={{ fontSize: 12, color: C.text2, marginTop: 4 }}>
+                      {cls.enrollments.length} student
+                      {cls.enrollments.length === 1 ? "" : "s"}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 14,
+                        padding: "6px 10px",
+                        background: C.bg2,
+                        borderRadius: 6,
+                        fontSize: 12,
+                        fontFamily: FONT_MONO,
+                        color: C.cyan,
+                        display: "inline-block",
+                      }}
+                    >
+                      Code: {cls.inviteCode}
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        fontSize: 12,
+                        color: C.text2,
+                        paddingTop: 14,
+                        marginTop: 14,
+                        borderTop: `1px solid ${C.bg2}`,
+                      }}
+                    >
+                      <span>{cls.assignments.length} assignments</span>
+                      <span style={{ color: C.cyan, display: "flex", alignItems: "center", gap: 4 }}>
+                        Open <Icon name="arrow" size={11} color={C.cyan} />
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          </Link>
-        ))}
-      </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </TeacherShell>
   );
 }

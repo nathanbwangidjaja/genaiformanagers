@@ -2,6 +2,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { SignIn } from "@clerk/nextjs";
 import { C } from "@/components/cortex/tokens";
 import { Logo, Btn, Avatar } from "@/components/cortex/primitives";
 import { Icon } from "@/components/cortex/Icon";
@@ -80,8 +81,6 @@ export default function SignInPage() {
 }
 
 function ClerkSignIn() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { SignIn } = require("@clerk/nextjs") as typeof import("@clerk/nextjs");
   return (
     <div style={{ width: "100%", maxWidth: 480 }}>
       <h1 style={{ fontSize: 28, fontWeight: 600, letterSpacing: "-0.02em", margin: "0 0 8px" }}>
