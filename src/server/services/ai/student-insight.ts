@@ -53,12 +53,29 @@ Style:
 - Avoid jargon — say "she asks a lot of 'why' questions" not "high inquiry-style score"
 - Don't repeat numbers the teacher already sees on the page; interpret them
 
-Format requirements:
-- summary: 2-3 sentences, plain prose. Captures the most interesting/actionable thing about this student RIGHT NOW.
-- highlights: 3-5 specific observations. Each tagged as strength / risk / curiosity / growth.
-- recommendations: 1-3 concrete teaching actions. Each with a brief "why" tied to the evidence.
+Return ONLY a JSON object matching this EXACT shape — every key name and shape must match. No prose, no code fences.
 
-Return ONLY a JSON object matching the schema. No prose outside.`;
+{
+  "summary": "string — 2-3 sentences, plain prose, captures the most actionable thing about this student RIGHT NOW",
+  "highlights": [
+    {
+      "type": "strength",
+      "text": "string — one specific observation tied to evidence"
+    }
+  ],
+  "recommendations": [
+    {
+      "action": "string — concrete teaching action",
+      "why": "string — short justification tied to the data"
+    }
+  ]
+}
+
+Critical key-name rules:
+- Each highlight MUST have keys "type" and "text" — not "tag", not "observation", not "category", not "body". Exactly "type" and "text".
+- The "type" value must be one of: "strength", "risk", "curiosity", "growth". Lowercase, exactly those four strings.
+- highlights must contain 3 to 5 entries.
+- recommendations must contain 1 to 3 entries with keys "action" and "why".`;
 
 const SCHEMA = {
   type: "object",
@@ -141,9 +158,49 @@ Produce the JSON brief.`;
   });
 
   for (const b of response.content) {
-    if (b.type === "text") return parseStrictJson(b.text) as StudentInsight;
+    if (b.type === "text") {
+      const raw = parseStrictJson(b.text) as Record<string, unknown>;
+      return normalizeInsight(raw);
+    }
   }
   throw new Error("insight gen returned no text");
+}
+
+/**
+ * Normalize the model's output to the exact shape the UI consumes. The
+ * non-schema endpoint occasionally drifts on key names (e.g. "tag" instead
+ * of "type", "observation" instead of "text"). Fix that here so a stale
+ * cached blob never crashes the per-student page.
+ */
+export function normalizeInsight(raw: Record<string, unknown>): StudentInsight {
+  const validTypes = ["strength", "risk", "curiosity", "growth"] as const;
+  type HType = (typeof validTypes)[number];
+
+  const summary = typeof raw.summary === "string" ? raw.summary : "";
+
+  const highlightsIn = Array.isArray(raw.highlights) ? raw.highlights : [];
+  const highlights = highlightsIn
+    .map((h: any) => {
+      const rawType = (h?.type ?? h?.tag ?? h?.category ?? "growth") as string;
+      const t = rawType.toLowerCase();
+      const type: HType = (validTypes as readonly string[]).includes(t)
+        ? (t as HType)
+        : "growth";
+      const text =
+        h?.text ?? h?.observation ?? h?.body ?? h?.detail ?? h?.content ?? "";
+      return { type, text: typeof text === "string" ? text : String(text) };
+    })
+    .filter((h) => h.text.length > 0);
+
+  const recIn = Array.isArray(raw.recommendations) ? raw.recommendations : [];
+  const recommendations = recIn
+    .map((r: any) => ({
+      action: typeof r?.action === "string" ? r.action : String(r?.action ?? r?.what ?? ""),
+      why: typeof r?.why === "string" ? r.why : String(r?.why ?? r?.reason ?? r?.because ?? ""),
+    }))
+    .filter((r) => r.action.length > 0);
+
+  return { summary, highlights, recommendations };
 }
 
 /**

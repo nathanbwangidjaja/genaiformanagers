@@ -25,6 +25,8 @@ export async function GET() {
   });
 
   const items: SearchItem[] = [];
+  // Dedupe students who appear in more than one class taught by this teacher.
+  const seenStudents = new Set<string>();
 
   for (const c of classes) {
     items.push({
@@ -34,6 +36,8 @@ export async function GET() {
       href: `/teacher/classes/${c.id}`,
     });
     for (const e of c.enrollments) {
+      if (seenStudents.has(e.student.id)) continue;
+      seenStudents.add(e.student.id);
       const fullName = `${e.student.firstName} ${e.student.lastName}`.trim() || e.student.email;
       items.push({
         kind: "student",

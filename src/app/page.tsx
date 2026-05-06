@@ -30,10 +30,10 @@ export default function LandingPage() {
           <Logo size={22} />
         </Link>
         <div style={{ display: "flex", gap: 32, fontSize: 14, color: C.text1 }}>
-          <span style={{ cursor: "pointer" }}>Product</span>
-          <span style={{ cursor: "pointer" }}>Pricing</span>
-          <span style={{ cursor: "pointer" }}>About</span>
-          <span style={{ cursor: "pointer" }}>Educators</span>
+          <a href="#product" style={{ color: "inherit", textDecoration: "none" }}>Product</a>
+          <Link href="/pricing" style={{ color: "inherit", textDecoration: "none" }}>Pricing</Link>
+          <Link href="/about" style={{ color: "inherit", textDecoration: "none" }}>About</Link>
+          <a href="#educators" style={{ color: "inherit", textDecoration: "none" }}>Educators</a>
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <Link href="/sign-in" style={{ textDecoration: "none" }}>
@@ -202,7 +202,7 @@ export default function LandingPage() {
       </section>
 
       {/* Knowledge Graph Showcase */}
-      <section style={{ padding: "120px 80px", borderTop: `1px solid ${C.bg2}` }}>
+      <section id="product" style={{ padding: "120px 80px", borderTop: `1px solid ${C.bg2}` }}>
         <div
           style={{
             display: "grid",
@@ -299,6 +299,7 @@ export default function LandingPage() {
 
       {/* Stats */}
       <section
+        id="educators"
         style={{
           padding: "120px 80px",
           position: "relative",
@@ -433,9 +434,32 @@ export default function LandingPage() {
           </div>
           {(
             [
-              ["Product", ["Dashboard", "Features", "Pricing", "Changelog"]],
-              ["Company", ["About", "Blog", "Careers", "Contact"]],
-              ["Legal", ["Privacy", "Terms", "Security", "DPA"]],
+              [
+                "Product",
+                [
+                  ["Dashboard", "/dashboard-redirect"],
+                  ["Features", "/#product"],
+                  ["Pricing", "/pricing"],
+                  ["Changelog", "/changelog"],
+                ],
+              ],
+              [
+                "Company",
+                [
+                  ["About", "/about"],
+                  ["Educators", "/#educators"],
+                  ["Contact", "/contact"],
+                ],
+              ],
+              [
+                "Legal",
+                [
+                  ["Privacy", "/privacy"],
+                  ["Terms", "/terms"],
+                  ["Security", "/security"],
+                  ["DPA", "/dpa"],
+                ],
+              ],
             ] as const
           ).map(([title, items]) => (
             <div key={title}>
@@ -452,10 +476,14 @@ export default function LandingPage() {
                 {title}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {items.map((i) => (
-                  <span key={i} style={{ fontSize: 14, color: C.text1, cursor: "pointer" }}>
-                    {i}
-                  </span>
+                {items.map(([label, href]) => (
+                  <Link
+                    key={label}
+                    href={href}
+                    style={{ fontSize: 14, color: C.text1, textDecoration: "none" }}
+                  >
+                    {label}
+                  </Link>
                 ))}
               </div>
             </div>
