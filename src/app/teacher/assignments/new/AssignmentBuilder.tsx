@@ -60,8 +60,38 @@ export function AssignmentBuilder({
   const [genOpen, setGenOpen] = React.useState(false);
   const [genConceptId, setGenConceptId] = React.useState(concepts[0]?.id ?? "");
   const [genDifficulty, setGenDifficulty] = React.useState(3);
+  const [genUseRealWorld, setGenUseRealWorld] = React.useState(false);
   const [genLoading, setGenLoading] = React.useState(false);
   const [genError, setGenError] = React.useState<string | null>(null);
+  const [lastRealWorld, setLastRealWorld] = React.useState<{
+    requested: boolean;
+    eligibleSource: "weather" | "currency" | "none";
+    used: boolean;
+    source?: string;
+  } | null>(null);
+
+  // Mirror the server-side router: tells the user before they click Generate
+  // whether real-time data is available for the selected standard.
+  const eligibilityFor = (code: string): "weather" | "currency" | "none" => {
+    if (/^7\.NS\.1/.test(code)) return "weather";
+    if (/^7\.RP\./.test(code)) return "currency";
+    if (/^7\.NS\.2/.test(code)) return "currency";
+    if (/^7\.NS\.3/.test(code)) return "currency";
+    if (/^7\.EE\.3/.test(code)) return "currency";
+    return "none";
+  };
+  const selectedConcept = concepts.find((c) => c.id === genConceptId);
+  const selectedEligibility = selectedConcept
+    ? eligibilityFor(selectedConcept.code)
+    : "none";
+
+  // If the user picks a standard with no real-world source, auto-uncheck
+  // the box so the option doesn't lie about what will happen.
+  React.useEffect(() => {
+    if (selectedEligibility === "none" && genUseRealWorld) {
+      setGenUseRealWorld(false);
+    }
+  }, [selectedEligibility, genUseRealWorld]);
 
   const generateQuestion = async () => {
     setGenLoading(true);
@@ -74,12 +104,14 @@ export function AssignmentBuilder({
           curriculumNodeId: genConceptId,
           difficulty: genDifficulty,
           persist: true,
+          useRealWorldContext: genUseRealWorld,
         }),
       });
       const data = await res.json();
       if (!res.ok) {
         setGenError(data.message || data.error || "Failed");
       } else {
+        if (data.realWorld) setLastRealWorld(data.realWorld);
         // Add to bank list and auto-select
         const concept = concepts.find((c) => c.id === genConceptId);
         if (concept && data.questionId) {
@@ -229,6 +261,54 @@ export function AssignmentBuilder({
                 <Icon name="sparkle" size={11} color={C.violet} strokeWidth={2} /> Generate with AI
               </button>
             </div>
+            {lastRealWorld && (
+              <div
+                style={{
+                  fontSize: 12,
+                  padding: "8px 12px",
+                  background: lastRealWorld.used ? `${C.green}10` : `${C.amber}10`,
+                  border: `1px solid ${(lastRealWorld.used ? C.green : C.amber)}33`,
+                  borderRadius: 8,
+                  marginBottom: 10,
+                  color: C.text1,
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 8,
+                }}
+              >
+                <Icon
+                  name={lastRealWorld.used ? "check" : "x"}
+                  size={13}
+                  color={lastRealWorld.used ? C.green : C.amber}
+                  strokeWidth={2.5}
+                />
+                <div>
+                  {lastRealWorld.used ? (
+                    <>
+                      <strong style={{ color: C.text0 }}>Real-time data attached.</strong>{" "}
+                      {lastRealWorld.eligibleSource === "weather"
+                        ? "Latest question is grounded in today's actual temperature data."
+                        : "Latest question is grounded in today's actual currency exchange rate."}
+                      {lastRealWorld.source ? (
+                        <span style={{ display: "block", color: C.text3, marginTop: 2 }}>
+                          Source: {lastRealWorld.source}
+                        </span>
+                      ) : null}
+                    </>
+                  ) : lastRealWorld.requested && lastRealWorld.eligibleSource === "none" ? (
+                    <>
+                      <strong style={{ color: C.text0 }}>No real-time data attached.</strong>{" "}
+                      The selected standard has no applicable external API. Question was generated normally.
+                    </>
+                  ) : (
+                    <>
+                      <strong style={{ color: C.text0 }}>External API unreachable.</strong>{" "}
+                      Question was generated without real-time data this time. Try again to retry.
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
             <div
               style={{
                 display: "flex",
@@ -523,8 +603,47 @@ export function AssignmentBuilder({
               value={genDifficulty}
               onChange={(e) => setGenDifficulty(parseFloat(e.target.value))}
               disabled={genLoading}
-              style={{ width: "100%", marginBottom: 22 }}
+              style={{ width: "100%", marginBottom: 14 }}
             />
+            <label
+              style={{
+                fontSize: 13,
+                color: C.text1,
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+                marginBottom: 18,
+                padding: 12,
+                background: `${C.violet}08`,
+                border: `1px solid ${C.violet}33`,
+                borderRadius: 8,
+                cursor: genLoading ? "not-allowed" : "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={genUseRealWorld}
+                onChange={(e) => setGenUseRealWorld(e.target.checked)}
+                disabled={genLoading || selectedEligibility === "none"}
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                <span style={{ color: C.text0, fontWeight: 500 }}>Use real-time external data</span>
+                <span style={{ color: C.text3, display: "block", fontSize: 11, marginTop: 2 }}>
+                  {selectedEligibility === "weather" && (
+                    <>This standard is signed-arithmetic — generation will pull today&rsquo;s actual temperature from Open-Meteo for a real US city.</>
+                  )}
+                  {selectedEligibility === "currency" && (
+                    <>This standard involves rates / proportions — generation will pull today&rsquo;s actual USD exchange rate from open.er-api.com.</>
+                  )}
+                  {selectedEligibility === "none" && (
+                    <span style={{ color: C.amber }}>
+                      No real-time data source applies to this standard ({selectedConcept?.code}). Real-time grounding is available for signed-arithmetic (7.NS.1*), proportional reasoning (7.RP.*, 7.NS.2*, 7.NS.3), and multi-step real-world problems (7.EE.3). Pick one of those to enable this option.
+                    </span>
+                  )}
+                </span>
+              </span>
+            </label>
             {genError && (
               <div
                 style={{

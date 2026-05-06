@@ -136,15 +136,28 @@ Produce the JSON brief.`;
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 2048,
-    system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
-    output_config: {
-      format: { type: "json_schema", schema: SCHEMA as unknown as Record<string, unknown> },
-    },
+    system: SYSTEM,
     messages: [{ role: "user", content: userMessage }],
   });
 
   for (const b of response.content) {
-    if (b.type === "text") return JSON.parse(b.text) as StudentInsight;
+    if (b.type === "text") return parseStrictJson(b.text) as StudentInsight;
   }
   throw new Error("insight gen returned no text");
+}
+
+/**
+ * Robust JSON extractor — strips ```json fences and any pre/post prose,
+ * then parses. The model is told to return JSON only, but we defend
+ * anyway so a stray "Here is..." line doesn't break the page.
+ */
+function parseStrictJson(text: string): unknown {
+  let t = text.trim();
+  if (t.startsWith("```")) {
+    t = t.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  }
+  const start = t.indexOf("{");
+  const end = t.lastIndexOf("}");
+  if (start >= 0 && end > start) t = t.slice(start, end + 1);
+  return JSON.parse(t);
 }

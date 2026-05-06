@@ -48,6 +48,8 @@ export default async function LessonPlanDetailPage({
         }
         className={plan.class?.name ?? "(no class)"}
         createdAt={plan.createdAt.toLocaleString()}
+        classId={plan.classId ?? undefined}
+        previousFocusNotes={plan.focusNotes ?? undefined}
       />
     </TeacherShell>
   );

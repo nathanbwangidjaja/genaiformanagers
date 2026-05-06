@@ -59,7 +59,15 @@ export function anthropic(): Anthropic {
     );
   }
   if (!_client) {
-    _client = new Anthropic({ apiKey: API_KEY });
+    // maxRetries: 0 — surface failures immediately. The SDK's default 2-retry
+    // policy can stack with Anthropic's own internal timeouts and produce
+    // 6+ minute hangs when the upstream is unhealthy.
+    // timeout: 90s — bound the worst-case wait per request.
+    _client = new Anthropic({
+      apiKey: API_KEY,
+      maxRetries: 0,
+      timeout: 90_000,
+    });
   }
   return _client;
 }

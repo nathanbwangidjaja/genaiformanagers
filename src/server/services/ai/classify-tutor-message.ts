@@ -72,16 +72,18 @@ Classify the student's intent. Return only the JSON.`;
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 256,
-    system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
-    output_config: {
-      format: { type: "json_schema", schema: SCHEMA as unknown as Record<string, unknown> },
-    },
+    system: SYSTEM,
     messages: [{ role: "user", content: userMessage }],
   });
 
   for (const b of response.content) {
     if (b.type === "text") {
-      return JSON.parse(b.text) as { intent: TutorIntent; confidence: number };
+      let t = b.text.trim();
+      if (t.startsWith("```")) t = t.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+      const start = t.indexOf("{");
+      const end = t.lastIndexOf("}");
+      if (start >= 0 && end > start) t = t.slice(start, end + 1);
+      return JSON.parse(t) as { intent: TutorIntent; confidence: number };
     }
   }
   throw new Error("classifier returned no text");
