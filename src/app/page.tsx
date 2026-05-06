@@ -157,9 +157,11 @@ export default function LandingPage() {
                 Get Started — Free
               </Btn>
             </Link>
-            <Btn kind="secondaryRound" size="lg" icon={<Icon name="play" size={12} />}>
-              Watch Demo
-            </Btn>
+            <Link href="/sign-in" style={{ textDecoration: "none" }}>
+              <Btn kind="secondaryRound" size="lg" icon={<Icon name="play" size={12} />}>
+                Sign In
+              </Btn>
+            </Link>
           </div>
           <div style={{ marginTop: 80 }}>
             <div style={{ fontSize: 12, color: C.text2, marginBottom: 18 }}>

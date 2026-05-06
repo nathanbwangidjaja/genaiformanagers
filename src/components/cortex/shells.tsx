@@ -1,10 +1,13 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { C, FONT_MONO } from "./tokens";
+import { usePathname, useRouter } from "next/navigation";
+import { useClerk } from "@clerk/nextjs";
+import { C } from "./tokens";
 import { Logo, Avatar, Badge } from "./primitives";
 import { Icon, type IconName } from "./Icon";
+import { OmniSearch } from "./OmniSearch";
+import { UserMenu } from "./UserMenu";
 
 type NavItem = { icon: IconName; label: string; href: string; badge?: string };
 
@@ -93,24 +96,29 @@ export function TeacherSidebar({ teacherName = "Ms. Johnson", orgName = "Lincoln
         >
           {orgName}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Avatar name={teacherName} size={32} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: 13,
-                fontWeight: 500,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {teacherName}
-            </div>
-            <div style={{ fontSize: 11, color: C.text2 }}>Teacher</div>
-          </div>
-          <Icon name="settings" size={16} color={C.text2} />
+        <SidebarUserStrip teacherName={teacherName} />
+      </div>
+    </div>
+  );
+}
+
+function SidebarUserStrip({ teacherName }: { teacherName: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <Avatar name={teacherName} size={32} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 500,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {teacherName}
         </div>
+        <div style={{ fontSize: 11, color: C.text2 }}>Teacher</div>
       </div>
     </div>
   );
@@ -164,62 +172,8 @@ export function Topbar({
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         {rightExtra}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "7px 14px",
-            background: C.bg1,
-            border: `1px solid ${C.bg2}`,
-            borderRadius: 99,
-            fontSize: 13,
-            color: C.text2,
-            minWidth: 280,
-          }}
-        >
-          <Icon name="search" size={14} color={C.text2} />
-          <span style={{ flex: 1 }}>Search students, concepts…</span>
-          <span
-            style={{
-              fontSize: 11,
-              color: C.text3,
-              padding: "2px 6px",
-              background: C.bg2,
-              borderRadius: 4,
-              fontFamily: FONT_MONO,
-            }}
-          >
-            ⌘K
-          </span>
-        </div>
-        <div
-          style={{
-            position: "relative",
-            width: 36,
-            height: 36,
-            borderRadius: 8,
-            border: `1px solid ${C.bg2}`,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Icon name="bell" size={16} color={C.text1} />
-          <div
-            style={{
-              position: "absolute",
-              top: 7,
-              right: 8,
-              width: 7,
-              height: 7,
-              borderRadius: 99,
-              background: C.red,
-              border: `2px solid ${C.bg0}`,
-            }}
-          />
-        </div>
-        <Avatar name={teacherName} size={36} />
+        <OmniSearch />
+        <UserMenu name={teacherName} role="Teacher" />
       </div>
     </div>
   );
@@ -312,33 +266,113 @@ export function StudentSidebar() {
           );
         })}
       </div>
-      <div
-        style={{
-          marginTop: "auto",
-          padding: 12,
-          background: C.bg2,
-          borderRadius: 10,
-          border: `1px solid ${C.border}`,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <Icon name="flame" size={14} color={C.orange} />
-          <span style={{ fontSize: 12, fontWeight: 600 }}>5-day streak</span>
-        </div>
-        <div style={{ display: "flex", gap: 3 }}>
-          {[1, 1, 1, 1, 1, 0, 0].map((d, i) => (
-            <div
-              key={i}
-              style={{
-                flex: 1,
-                height: 4,
-                borderRadius: 99,
-                background: d ? C.orange : C.bg1,
-              }}
-            />
-          ))}
-        </div>
-        <div style={{ fontSize: 11, color: C.text2, marginTop: 8 }}>Practice today to keep it going</div>
+      <StudentStreakCard />
+      <StudentSignOutButton />
+    </div>
+  );
+}
+
+function StudentSignOutButton() {
+  const router = useRouter();
+  const { signOut } = useClerk();
+  return (
+    <button
+      onClick={async () => {
+        await signOut();
+        router.push("/");
+      }}
+      style={{
+        marginTop: 10,
+        padding: "8px 12px",
+        background: "transparent",
+        border: `1px solid ${C.bg2}`,
+        borderRadius: 8,
+        color: C.text2,
+        fontSize: 12,
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        fontFamily: "inherit",
+      }}
+    >
+      <Icon name="x" size={12} color={C.text2} strokeWidth={2} />
+      Sign out
+    </button>
+  );
+}
+
+/**
+ * Real per-day practice streak. Fetches the last 7 days of question_attempt
+ * events for the signed-in student and renders a true streak.
+ */
+function StudentStreakCard() {
+  const [days, setDays] = React.useState<number[] | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch("/api/student/streak")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        setDays(data.days as number[]);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Skeleton on first render
+  const display = days ?? [0, 0, 0, 0, 0, 0, 0];
+  const streakCount = (() => {
+    if (!days) return null;
+    let n = 0;
+    for (let i = days.length - 1; i >= 0; i--) {
+      if (days[i] > 0) n++;
+      else break;
+    }
+    return n;
+  })();
+
+  return (
+    <div
+      style={{
+        marginTop: "auto",
+        padding: 12,
+        background: C.bg2,
+        borderRadius: 10,
+        border: `1px solid ${C.border}`,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <Icon name="flame" size={14} color={C.orange} />
+        <span style={{ fontSize: 12, fontWeight: 600 }}>
+          {streakCount === null
+            ? "Loading…"
+            : streakCount === 0
+            ? "No streak yet"
+            : `${streakCount}-day streak`}
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 3 }}>
+        {display.map((d, i) => (
+          <div
+            key={i}
+            style={{
+              flex: 1,
+              height: 4,
+              borderRadius: 99,
+              background: d > 0 ? C.orange : C.bg1,
+            }}
+          />
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: C.text2, marginTop: 8 }}>
+        {streakCount && streakCount > 0
+          ? "Practice today to keep it going"
+          : "Answer a question today to start a streak"}
       </div>
     </div>
   );

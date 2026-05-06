@@ -97,9 +97,16 @@ export default async function StudentBrainPage({
             </span>
           </div>
         </div>
-        <Btn kind="secondary" size="md" icon={<Icon name="msg" size={14} />}>
-          Message
-        </Btn>
+        <a
+          href={`mailto:${student.email}?subject=${encodeURIComponent(
+            `${name} — note from your teacher`,
+          )}`}
+          style={{ textDecoration: "none" }}
+        >
+          <Btn kind="secondary" size="md" icon={<Icon name="msg" size={14} />}>
+            Email
+          </Btn>
+        </a>
       </div>
 
       {/* Top-level scores derived from the graph */}
